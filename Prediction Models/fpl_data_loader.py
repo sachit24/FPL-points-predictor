@@ -24,19 +24,20 @@ class FPLDataLoader:
 
     def make_gw_df(self, gameweeks_data, full_data):
         all_players_data = []
-        for gw in gameweeks_data:
+        for gw_idx, gw in enumerate(gameweeks_data):
             for player in gw:
                 player_id = player["id"]
                 player_stats = player["stats"]
                 player_stats['id'] = player_id
                 player_stats['fixture'] = player["explain"][0]["fixture"]
+                player_stats['gameweek'] = gw_idx + 1  # ADD THIS LINE
                 all_players_data.append(player_stats)
         
         df = pd.DataFrame(all_players_data)
         new_column_order = ["id"] + [col for col in df.columns if col != "id"]
         df = df[new_column_order]
         players_info = pd.DataFrame(full_data["elements"])
-        df = df.merge(players_info[['id', 'element_type', 'web_name', 'status']], 
+        df = df.merge(players_info[['id', 'element_type', 'web_name', 'status', 'now_cost', 'team']], 
                       on='id', how='left')
         
         object_cols = ['influence', 'creativity', 'threat', 'ict_index', 

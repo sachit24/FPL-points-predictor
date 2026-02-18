@@ -123,7 +123,10 @@ class LinearPredictionModel(BaseModel):
         
         return model, coefficients
 
-    def train(self, df: pd.DataFrame):
+    def train(self, df: pd.DataFrame, target_gw=None):
+        # Filter data if target_gw specified
+        if target_gw is not None:
+            df = df[df['gameweek'] < target_gw].copy()
         # Create features
         df_with_season = self.create_cumulative_features(df)
         df_features = self.create_rolling_features(df_with_season)
@@ -141,8 +144,10 @@ class LinearPredictionModel(BaseModel):
             print(f"\nTop 20 Most Important Features for {pos_name}:")
             print(coef.head(20))
 
-    def predict(self, df: pd.DataFrame) -> pd.DataFrame:
-        # Create features
+    def predict(self, df: pd.DataFrame, target_gw=None) -> pd.DataFrame:
+        if target_gw is not None:
+            df = df[df['gameweek'] < target_gw].copy()
+
         df_with_season = self.create_cumulative_features(df)
         df_features = self.create_rolling_features(df_with_season)
         
@@ -154,12 +159,17 @@ class LinearPredictionModel(BaseModel):
             relevant_features = self.get_relevant_features(pos_id)
             feature_cols = [col for col in relevant_features if col in df_position.columns]
             
-            df_model = df_position[feature_cols + ['web_name', 'fixture', 'id', 'element_type']].dropna()
+            # ✅ Add 'team' to the columns pulled into df_model
+            extra_cols = ['web_name', 'fixture', 'id', 'element_type', 'team']
+            df_model = df_position[feature_cols + extra_cols].dropna()
             df_latest = df_model.loc[df_model.groupby('id')['fixture'].idxmax()]
             
             X = df_latest[feature_cols]
+            df_latest = df_latest.copy()
             df_latest['predicted_points'] = self.models[pos_id].predict(X)
             
-            all_predictions.append(df_latest[['id', 'web_name', 'element_type', 'predicted_points']])
+            # ✅ Include 'now_cost' (already in feature_cols) and 'team' in output
+            output_cols = ['id', 'web_name', 'element_type', 'predicted_points', 'now_cost', 'team']
+            all_predictions.append(df_latest[output_cols])
         
         return pd.concat(all_predictions, ignore_index=True)

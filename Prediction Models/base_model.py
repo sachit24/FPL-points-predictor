@@ -5,12 +5,12 @@ class BaseModel(ABC):
     """Abstract base class for any FPL model"""
     
     @abstractmethod
-    def train(self, df: pd.DataFrame):
+    def train(self, df: pd.DataFrame, target_gw=None):
         """Train the model on historical data"""
         pass
     
     @abstractmethod
-    def predict(self, df: pd.DataFrame) -> pd.DataFrame:
+    def predict(self, df: pd.DataFrame, target_gw=None) -> pd.DataFrame:
         """
         Return predictions for next gameweek
         
