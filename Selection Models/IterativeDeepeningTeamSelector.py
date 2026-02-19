@@ -9,13 +9,23 @@ class IterativeDeepeningTeamSelector(TeamSelector):
         self.max_offset = max_offset
         self.max_players_per_club = max_players_per_club
         self.price_penalty_weight = price_penalty_weight
+
+        self.min_k = {
+            1: 4,   # Goalkeepers minimum
+            2: 7,   # Defenders minimum
+            3: 7,   # Midfielders minimum
+            4: 5    # Forwards minimum
+        }
+
+        # Order of increment: which position to increase at each step
+        self.increment_order = [3, 4, 2, 1]  # MID, FWD, DEF, GK
         
         # Different max_k per position: {position: max_k}
         self.position_max_k = {
             1: 6,   # Goalkeepers (2 in team)
-            2: 12,  # Defenders (5 in team)
-            3: 15,  # Midfielders (5 in team)
-            4: 10   # Forwards (3 in team)
+            2: 10,  # Defenders (5 in team)
+            3: 10,  # Midfielders (5 in team)
+            4: 8   # Forwards (3 in team)
         }
         self.initial_k = 4  # Start with 4 replacements per player
     
@@ -81,9 +91,9 @@ class IterativeDeepeningTeamSelector(TeamSelector):
         return worst.drop(columns=['combined_score'])
     
     def find_best_replacements(self, players_to_replace: pd.DataFrame, 
-                              current_team: pd.DataFrame, 
-                              available_players: pd.DataFrame, 
-                              budget: float) -> list:
+                          current_team: pd.DataFrame, 
+                          available_players: pd.DataFrame, 
+                          budget: float) -> list:
         """Find best replacement combinations using iterative deepening"""
         
         # Group players to replace by position
@@ -93,15 +103,38 @@ class IterativeDeepeningTeamSelector(TeamSelector):
             if len(pos_players) > 0:
                 players_by_position[position] = pos_players
         
-        # Iterative deepening: start with initial_k, increase if no solution found
-        for offset in range(self.max_offset + 1):
-            current_k = self.initial_k + offset
+        # Initialize current_k based on number of players being replaced
+        current_k = {}
+        for position in [1, 2, 3, 4]:
+            if position in players_by_position:
+                num_to_replace = len(players_by_position[position])
+                current_k[position] = min(self.min_k[position], 3 * num_to_replace)
+            else:
+                current_k[position] = self.min_k[position]
+        
+        # Calculate reasonable max iterations
+        max_iterations = sum(self.position_max_k[pos] - current_k[pos] for pos in [1, 2, 3, 4]) + 1
+        
+        for iteration in range(max_iterations):
+            # Increment k for one position (after first iteration)
+            if iteration > 0:
+                position_to_increment = self.increment_order[(iteration - 1) % len(self.increment_order)]
+                
+                if current_k[position_to_increment] < self.position_max_k[position_to_increment]:
+                    current_k[position_to_increment] += 1
+            
+            print(f"Iteration {iteration}: k values = GK:{current_k[1]}, DEF:{current_k[2]}, MID:{current_k[3]}, FWD:{current_k[4]}")
             
             choices_per_position = []
             
             for position, to_replace in players_by_position.items():
                 num_to_replace = len(to_replace)
-                max_candidates = min(num_to_replace * current_k, self.position_max_k[position])
+                
+                # Formula: min(k * num_to_replace, max_k)
+                max_candidates = min(
+                    current_k[position],
+                    self.position_max_k[position]
+                )
                 
                 # Players we want to KEEP (not being replaced)
                 kept_players = current_team[~current_team['id'].isin(players_to_replace['id'])]
@@ -127,22 +160,16 @@ class IterativeDeepeningTeamSelector(TeamSelector):
                 choices_per_position.append(position_combos)
             
             if choices_per_position is None:
-                continue  # Try next offset
+                continue  # Try next iteration
             
-            # Generate cartesian product across positions
-            all_combinations = list(product(*choices_per_position))
-            
-            # Flatten combinations
-            all_combinations = [
-                [player for choice in combo for player in choice]
-                for combo in all_combinations
-            ]
-            
-            # Score each combination
+            # Use generator to avoid loading all combinations in memory
             best_swaps = None
             best_score = -float('inf')
             
-            for combination in all_combinations:
+            for combo in product(*choices_per_position):
+                # Flatten combination
+                combination = [player for choice in combo for player in choice]
+                
                 swaps = self.map_combination_to_swaps(combination, players_to_replace)
                 
                 # Check constraints
@@ -159,11 +186,13 @@ class IterativeDeepeningTeamSelector(TeamSelector):
                     best_score = score
                     best_swaps = swaps
             
-            # If we found valid swaps, return immediately
+            # If we found valid swaps, return immediately (EARLY EXIT)
             if best_swaps:
+                print(f"✓ Found solution at iteration {iteration}")
                 return best_swaps
         
-        # No valid combination found after all offsets
+        # No valid combination found after all iterations
+        print("✗ No valid solution found after all iterations")
         return []
     
     def map_combination_to_swaps(self, combination: list, players_to_replace: pd.DataFrame) -> list:
@@ -268,8 +297,12 @@ class IterativeDeepeningTeamSelector(TeamSelector):
                 'cost_change': swap['in']['now_cost'] - swap['out']['now_cost'],
                 'points_gain': swap['points_gain']
             })
-        
-        return {'team': new_team, 'transfers': transfers, 'budget': new_budget}
+        # Calculate actual remaining budget
+        money_spent = sum(swap['in']['now_cost'] for swap in best_swaps)
+        money_gained = sum(swap['out']['now_cost'] for swap in best_swaps)
+        remaining_budget = budget - money_spent + money_gained
+
+        return {'team': new_team, 'transfers': transfers, 'budget': remaining_budget}
     
     def rebuild_team(self, available_players: pd.DataFrame, budget: float) -> dict:
         """Build team from scratch - call make_transfers with 15 transfers from dummy team"""
@@ -282,6 +315,14 @@ class IterativeDeepeningTeamSelector(TeamSelector):
         
         dummy_team = pd.concat(dummy_team, ignore_index=True)
         
+        # Calculate the dummy team cost
+        dummy_team_cost = dummy_team['now_cost'].sum()
+        
+        # Budget for transfers = total budget - dummy team value
+        transfer_budget = budget - dummy_team_cost
+        
         # Make 15 transfers (rebuild entire team)
-        return self.make_transfers(dummy_team, available_players, 15, budget)
-    
+        result = self.make_transfers(dummy_team, available_players, 15, transfer_budget)
+        
+        return result
+        

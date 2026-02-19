@@ -40,6 +40,9 @@ class FPLDataLoader:
         df = df.merge(players_info[['id', 'element_type', 'web_name', 'status', 'now_cost', 'team']], 
                       on='id', how='left')
         
+        # Convert now_cost from tenths to actual millions (60 -> 6.0)
+        df['now_cost'] = df['now_cost'] / 10.0
+        
         object_cols = ['influence', 'creativity', 'threat', 'ict_index', 
                        'expected_goals', 'expected_assists', 
                        'expected_goal_involvements', 'expected_goals_conceded']
