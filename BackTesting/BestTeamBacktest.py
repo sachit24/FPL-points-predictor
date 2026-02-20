@@ -1,21 +1,3 @@
-"""
-Backtester.py
--------------
-Place this file in the root folder (same level as BasicTest.py).
-
-Runs a walk-forward backtest using any BaseModel + TeamSelector strategy.
-For each gameweek in [start_gw, last_finished_gw]:
-    1. Train the model on GW1 .. gw-1
-    2. Predict points for gw
-    3. Build the best 15-player squad (rebuild_team)
-    4. Pick the best starting 11 + captain (BestElevenSelector)
-    5. Look up actual points scored in gw (with captain doubled)
-    6. Compare against the FPL average entry score for that gw
-
-Returns a DataFrame with columns:
-    gameweek | avg_score | our_score | vs_avg
-"""
-
 import sys
 import requests
 import pandas as pd
@@ -101,7 +83,7 @@ class Backtester:
         last_gw = int(raw_df["gameweek"].max())
 
         print(f"Backtesting GW{self.start_gw} → GW{last_gw}")
-        print("Fetching average entry scores from FPL API...")
+        # print("Fetching average entry scores from FPL API...")
         avg_df = self._fetch_avg_entry_scores()
 
         # Restrict to the GWs we are testing
@@ -113,16 +95,23 @@ class Backtester:
         results["our_score"] = 0
 
         for gw in range(self.start_gw, last_gw + 1):
-            print(f"\n{'='*60}")
+            # print(f"\n{'='*60}")
             print(f"GW{gw}  |  training on GW1–{gw - 1}, predicting GW{gw}")
-            print(f"{'='*60}")
+            # print(f"{'='*60}")
 
             # 1. Train on data strictly before this GW
             self.model.train(raw_df, target_gw=gw)
 
             # 2. Predict for this GW
             predictions = self.model.predict(raw_df, target_gw=gw)
-            print(f"  Predictions generated for {len(predictions)} players")
+            # print(f"  Predictions generated for {len(predictions)} players")
+            # Zero out predicted points for players who didn't play in this GW
+            # Note: this uses future information — known limitation for now
+            actual_gw_minutes = raw_df[raw_df["gameweek"] == gw].groupby("id")["minutes"].sum()
+            predictions["predicted_points"] = predictions.apply(
+                lambda row: 0.0 if actual_gw_minutes.get(row["id"], 1) == 0 else row["predicted_points"],
+                axis=1
+            )
 
             # 3. Build best 15-player squad from scratch
             result = self.selector.rebuild_team(predictions, self.budget)
@@ -132,8 +121,16 @@ class Backtester:
             eleven, captain = self.eleven_selector.select(squad)
             captain_id      = int(captain["id"])
 
-            print(f"  Captain : {captain['web_name']} "
-                  f"(predicted {captain['predicted_points']:.2f} pts)")
+            gw_pts = raw_df[raw_df["gameweek"] == gw].groupby("id")["total_points"].sum()
+
+            positions = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
+            for _, p in eleven.sort_values("element_type").iterrows():
+                flag = " ©" if p["id"] == captain_id else ""
+                actual = int(gw_pts.get(p["id"], 0))
+                print(f"  {positions[p['element_type']]}  {p['web_name']:20s} pred: {p['predicted_points']:.2f}  actual: {actual}{flag}")
+
+            # print(f"  Captain : {captain['web_name']} "
+            #       f"(predicted {captain['predicted_points']:.2f} pts)")
 
             # 5. Actual points for this GW
             our_score = self._actual_gw_points(eleven, captain_id, raw_df, gw)

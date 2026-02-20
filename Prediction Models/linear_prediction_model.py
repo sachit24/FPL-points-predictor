@@ -107,9 +107,9 @@ class LinearPredictionModel(BaseModel):
         X = df_model[feature_cols]
         y = df_model['target_points']
         
-        print(f"\nTraining for Position {position_type}")
-        print(f"Number of samples: {len(X)}")
-        print(f"Number of features: {len(feature_cols)}")
+        # print(f"\nTraining for Position {position_type}")
+        # print(f"Number of samples: {len(X)}")
+        # print(f"Number of features: {len(feature_cols)}")
         
         model = Ridge(alpha=50.0)
         model.fit(X, y)
@@ -119,7 +119,7 @@ class LinearPredictionModel(BaseModel):
             'coefficient': np.append(model.coef_, model.intercept_)
         }).sort_values('coefficient', ascending=False, key=abs)
         
-        print(f"\nIntercept: {model.intercept_:.4f}")
+        # print(f"\nIntercept: {model.intercept_:.4f}")
         
         return model, coefficients
 
@@ -134,15 +134,15 @@ class LinearPredictionModel(BaseModel):
         positions = {1: 'Goalkeeper', 2: 'Defender', 3: 'Midfielder', 4: 'Forward'}
         
         for pos_id, pos_name in positions.items():
-            print("\n" + "="*80)
-            print(f"TRAINING: {pos_name.upper()} (Position {pos_id})")
-            print("="*80)
+            # print("\n" + "="*80)
+            # print(f"TRAINING: {pos_name.upper()} (Position {pos_id})")
+            # print("="*80)
             
             model, coef = self.train_linear_regression_smart(df_features, position_type=pos_id)
             self.models[pos_id] = model
             
-            print(f"\nTop 20 Most Important Features for {pos_name}:")
-            print(coef.head(20))
+            # print(f"\nTop 20 Most Important Features for {pos_name}:")
+            # print(coef.head(20))
 
     def predict(self, df: pd.DataFrame, target_gw=None) -> pd.DataFrame:
         if target_gw is not None:
