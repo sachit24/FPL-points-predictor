@@ -266,7 +266,7 @@ class IterativeDeepeningTeamSelector(TeamSelector):
         
         # Calculate percentiles
         perf_percentiles = self.calculate_performance_percentiles(available_players, team_player_ids)
-        print(available_players.head()) # Debug: Check available players data
+        # print(available_players.head()) # Debug: Check available players data
         price_percentiles = self.calculate_price_percentiles(available_players, team_player_ids)
         
         # Find worst players
